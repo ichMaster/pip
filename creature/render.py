@@ -171,19 +171,25 @@ def bar(value: float, width: int = 10) -> str:
     return color + "#" * filled + DIM + "-" * (width - filled) + RESET
 
 
-def status_line(name: str, n: Needs, state: str | None = None) -> str:
+def status_line(name: str, n: Needs, state: str | None = None,
+                width: int | None = None) -> str:
     """Boxed face on the left, the three needs bars stacked on the right.
 
     Pass ``state`` to force the face (e.g. ``"thinking"`` while a reply is in
-    flight); without it the face follows the body via ``face_state``.
+    flight); without it the face follows the body via ``face_state``. Pass
+    ``width`` (the terminal width) to stretch the bars to fit -- the block is
+    still **4 lines** either way, so ``STATUS_HEIGHT`` and the in-place redraw
+    are unaffected. ``width=None`` keeps the fixed legacy layout (10-wide bars).
     """
     st = _resolve_state(n, state)
     color = STATE_COLOR[st]
     box = face_block(n, state=st)
+    # Layout per line: 2 indent + 9 face box + 3 gap + "hunger " (7) + bar.
+    bw = 10 if width is None else max(10, min(30, width - 21))
     right = [f"{DIM}{name}{RESET}",
-             f"hunger {bar(n.hunger)}",
-             f"energy {bar(n.energy)}",
-             f"mood   {bar(n.mood)}"]
+             f"hunger {bar(n.hunger, bw)}",
+             f"energy {bar(n.energy, bw)}",
+             f"mood   {bar(n.mood, bw)}"]
     return "\n".join(f"  {color}{box[i]}{RESET}   {right[i]}" for i in range(4))
 
 

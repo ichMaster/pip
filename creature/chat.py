@@ -52,6 +52,18 @@ def _term_width() -> int:
     return shutil.get_terminal_size().columns
 
 
+def _status_width() -> int | None:
+    """Width to render the footer at: the terminal width on a TTY, else None
+    (None keeps status_line's fixed legacy layout -- right for piped output)."""
+    return _term_width() if _interactive() else None
+
+
+def _current_status(pet: Pet) -> str:
+    """The status block at the *current* terminal width -- recomputed on every
+    call, so a resized terminal reflows on the next redraw."""
+    return status_line(pet.name, pet.needs, width=_status_width())
+
+
 def _say(name: str, text: str) -> str:
     """One creature line, ready to print."""
     return f"  {CYAN}{name}{RESET}: {text}"
@@ -68,7 +80,7 @@ def _draw_footer(pet: Pet) -> None:
     On a real terminal the prompt dangles (you type right after it); when piped,
     it sits on its own line so the next printed line never collides with it.
     """
-    print(status_line(pet.name, pet.needs))
+    print(_current_status(pet))
     if _interactive():
         sys.stdout.write(PROMPT)
         sys.stdout.flush()
@@ -137,7 +149,7 @@ def run(pet: Pet) -> None:
     interactive = _interactive()
     _draw_intro(pet)
     _draw_footer(pet)
-    shown = status_line(name, pet.needs)   # what the footer currently shows
+    shown = _current_status(pet)   # what the footer currently shows
 
     last = time.time()
     next_log = last + REPRINT_SECONDS      # piped mode: occasional snapshot
@@ -150,12 +162,12 @@ def run(pet: Pet) -> None:
             spoken = pet.spontaneous(now)
             if spoken:
                 _reframe(pet, after_enter=False, echo=None, lines=[_say(name, spoken)])
-                shown = status_line(name, pet.needs)
+                shown = _current_status(pet)
                 next_log = now + REPRINT_SECONDS
 
             # Keep the picture live as the body drains, without spamming output:
             # redraw only when the rendered status actually changed.
-            current = status_line(name, pet.needs)
+            current = _current_status(pet)
             if current != shown:
                 if interactive:
                     _refresh_status(current)
@@ -173,7 +185,7 @@ def run(pet: Pet) -> None:
                 msg = raw.strip()
                 if not msg:             # bare Enter: just settle the footer back
                     _reframe(pet, after_enter=True, echo=None, lines=[])
-                    shown = status_line(name, pet.needs)
+                    shown = _current_status(pet)
                     continue
 
                 lines, quit_ = _handle(pet, msg)
@@ -181,7 +193,7 @@ def run(pet: Pet) -> None:
                     _reframe(pet, after_enter=True, echo=msg, lines=lines, footer=False)
                     break
                 _reframe(pet, after_enter=True, echo=msg, lines=lines)
-                shown = status_line(name, pet.needs)
+                shown = _current_status(pet)
     finally:
         if interactive:               # never leave the cursor hidden behind us
             sys.stdout.write(show_cursor())
