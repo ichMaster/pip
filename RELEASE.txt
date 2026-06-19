@@ -1,0 +1,13 @@
+pip — release notes
+===================
+
+Version 0.0.1 (2026-06-19)
+---------------------------
+- The two-clock creature: a pure-math BODY (needs drain in real wall-clock
+  time) and an LLM/templated MIND, behind one Brain protocol with graceful
+  LLMBrain -> RuleBrain fallback.
+- Real-time terminal REPL with status faces/bars, care actions (/feed, /play,
+  /sleep), /status, and templated spontaneous nags.
+- Optional anthropic LLM voice configured via .env; runs stdlib-only without it.
+- Project scaffolding: v0-v2 roadmap, v1 live-daemon spec, and workflow skills
+  (upload-issues, execute-issues, release-version).
