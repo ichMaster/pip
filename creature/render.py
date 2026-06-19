@@ -8,6 +8,7 @@ program can stay about behavior, not presentation.
 
 from __future__ import annotations
 
+import re
 import unicodedata
 
 from .needs import Needs
@@ -184,3 +185,71 @@ def status_line(name: str, n: Needs, state: str | None = None) -> str:
              f"energy {bar(n.energy)}",
              f"mood   {bar(n.mood)}"]
     return "\n".join(f"  {color}{box[i]}{RESET}   {right[i]}" for i in range(4))
+
+
+# ---- framing (boxes & columns) ---------------------------------------------
+# Pure, width-parameterised helpers for the framed UI (welcome banner, panels).
+# They take an explicit ``width`` and return strings -- there is no terminal
+# measurement here; chat.py measures (``shutil.get_terminal_size``) and feeds
+# the width in, the same way it owns the cursor arithmetic for the footer.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b[78]")
+
+
+def _visible_len(s: str) -> int:
+    """Length of ``s`` ignoring ANSI escapes -- its on-screen column count."""
+    return len(_ANSI_RE.sub("", s))
+
+
+def _fit(text: str, width: int) -> str:
+    """Pad or truncate plain ``text`` to exactly ``width`` columns."""
+    if width <= 0:
+        return ""
+    vis = _visible_len(text)
+    if vis < width:
+        return text + " " * (width - vis)
+    if vis > width:
+        return text[:width]      # box content is plain -> safe to slice
+    return text
+
+
+def _title_border(title: str, width: int) -> str:
+    """Top border with a title tucked in: ``╭─ title ───╮`` of exact width."""
+    maxt = width - 6             # room for "╭─ ", a space, >=1 "─", and "╮"
+    if maxt < 1:
+        return "╭" + "─" * (width - 2) + "╮"
+    t = title[:maxt]
+    fill = width - 5 - len(t)
+    return "╭─ " + t + " " + "─" * fill + "╮"
+
+
+def box(lines: list[str], width: int, *, title: str | None = None,
+        color: str | None = None) -> list[str]:
+    """Wrap ``lines`` in a bordered box exactly ``width`` columns wide.
+
+    Content is padded/truncated to fit (the frame never smears). ``title`` rides
+    in the top border; ``color`` wraps the whole frame. Pure -- returns strings.
+    """
+    width = max(width, 4)
+    inner = width - 4           # one space of padding inside each "│" border
+    top = _title_border(title, width) if title else "╭" + "─" * (width - 2) + "╮"
+    body = ["│ " + _fit(line, inner) + " │" for line in lines]
+    bottom = "╰" + "─" * (width - 2) + "╯"
+    out = [top, *body, bottom]
+    if color:
+        out = [f"{color}{line}{RESET}" for line in out]
+    return out
+
+
+def columns(blocks: list[list[str]], *, gap: int = 1) -> list[str]:
+    """Place equal-width boxed ``blocks`` side by side, padded to equal height."""
+    blocks = [b for b in blocks if b]
+    if not blocks:
+        return []
+    height = max(len(b) for b in blocks)
+    widths = [_visible_len(b[0]) for b in blocks]
+    sep = " " * gap
+    rows = []
+    for i in range(height):
+        cells = [(b[i] if i < len(b) else " " * w) for b, w in zip(blocks, widths)]
+        rows.append(sep.join(cells))
+    return rows
