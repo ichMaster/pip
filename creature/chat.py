@@ -21,8 +21,9 @@ import sys
 import time
 
 from .pet import Pet
-from .render import (BOLD, CYAN, DIM, RESET, STATUS_HEIGHT, clear_below,
-                     cursor_up, face, status_line)
+from .render import (BOLD, CLEAR_LINE, CYAN, DIM, RESET, STATUS_HEIGHT,
+                     clear_below, cursor_up, face, hide_cursor, restore_cursor,
+                     save_cursor, show_cursor, status_line)
 
 HELP = ("  /feed  /play  /sleep   care for me\n"
         "  /status  /help  /quit   info\n"
@@ -31,6 +32,10 @@ HELP = ("  /feed  /play  /sleep   care for me\n"
 # How long each loop pass waits for input before ticking again. Small enough to
 # feel responsive, large enough not to spin the CPU.
 POLL_SECONDS = 0.2
+
+# When output is piped (not a terminal) we can't redraw in place, so we drop a
+# fresh status snapshot into the log at most this often instead.
+REPRINT_SECONDS = 30.0
 
 PROMPT = f"  {DIM}you>{RESET} "
 
@@ -86,38 +91,77 @@ def _reframe(pet: Pet, *, after_enter: bool, echo: str | None,
         _draw_footer(pet)
 
 
+def _refresh_status(status: str) -> None:
+    """Repaint *only* the status block, in place, leaving the prompt untouched.
+
+    Save where the cursor is (somewhere on the prompt line, maybe mid-word),
+    step up over the block, rewrite its lines, then jump back -- so the four
+    bars/face update live as the body drains without disturbing what the user
+    is typing. The cursor is hidden for the brief hop to avoid flicker.
+    """
+    body = ("\n").join(CLEAR_LINE + line for line in status.split("\n"))
+    sys.stdout.write(hide_cursor() + save_cursor()
+                     + cursor_up(STATUS_HEIGHT) + body
+                     + restore_cursor() + show_cursor())
+    sys.stdout.flush()
+
+
 def run(pet: Pet) -> None:
     name = pet.name
+    interactive = _interactive()
     print(f"\n  {BOLD}{face(pet.needs)} {name}{RESET} blinks awake.\n")
     print(HELP + "\n")
     print(_say(name, "hi! i'm so glad you're here."))
     _draw_footer(pet)
+    shown = status_line(name, pet.needs)   # what the footer currently shows
 
     last = time.time()
-    while True:
-        now = time.time()
-        pet.tick(now - last)   # the body ticks on real elapsed time
-        last = now
+    next_log = last + REPRINT_SECONDS      # piped mode: occasional snapshot
+    try:
+        while True:
+            now = time.time()
+            pet.tick(now - last)   # the body ticks on real elapsed time
+            last = now
 
-        spoken = pet.spontaneous(now)
-        if spoken:
-            _reframe(pet, after_enter=False, echo=None, lines=[_say(name, spoken)])
+            spoken = pet.spontaneous(now)
+            if spoken:
+                _reframe(pet, after_enter=False, echo=None, lines=[_say(name, spoken)])
+                shown = status_line(name, pet.needs)
+                next_log = now + REPRINT_SECONDS
 
-        # Non-blocking line input: only read if stdin has something ready.
-        if select.select([sys.stdin], [], [], POLL_SECONDS)[0]:
-            raw = sys.stdin.readline()
-            if not raw:             # EOF (e.g. piped input ran out)
-                break
-            msg = raw.strip()
-            if not msg:             # bare Enter: just settle the footer back
-                _reframe(pet, after_enter=True, echo=None, lines=[])
-                continue
+            # Keep the picture live as the body drains, without spamming output:
+            # redraw only when the rendered status actually changed.
+            current = status_line(name, pet.needs)
+            if current != shown:
+                if interactive:
+                    _refresh_status(current)
+                    shown = current
+                elif now >= next_log:      # piped: drop a snapshot into the log
+                    print(current)
+                    shown = current
+                    next_log = now + REPRINT_SECONDS
 
-            lines, quit_ = _handle(pet, msg)
-            if quit_:
-                _reframe(pet, after_enter=True, echo=msg, lines=lines, footer=False)
-                break
-            _reframe(pet, after_enter=True, echo=msg, lines=lines)
+            # Non-blocking line input: only read if stdin has something ready.
+            if select.select([sys.stdin], [], [], POLL_SECONDS)[0]:
+                raw = sys.stdin.readline()
+                if not raw:             # EOF (e.g. piped input ran out)
+                    break
+                msg = raw.strip()
+                if not msg:             # bare Enter: just settle the footer back
+                    _reframe(pet, after_enter=True, echo=None, lines=[])
+                    shown = status_line(name, pet.needs)
+                    continue
+
+                lines, quit_ = _handle(pet, msg)
+                if quit_:
+                    _reframe(pet, after_enter=True, echo=msg, lines=lines, footer=False)
+                    break
+                _reframe(pet, after_enter=True, echo=msg, lines=lines)
+                shown = status_line(name, pet.needs)
+    finally:
+        if interactive:               # never leave the cursor hidden behind us
+            sys.stdout.write(show_cursor())
+            sys.stdout.flush()
 
 
 def _handle(pet: Pet, msg: str) -> tuple[list[str], bool]:

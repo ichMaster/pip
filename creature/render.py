@@ -54,6 +54,16 @@ def show_cursor() -> str:
     return "\033[?25h"
 
 
+def save_cursor() -> str:
+    """Remember the cursor position, so we can wander off and come back."""
+    return "\0337"
+
+
+def restore_cursor() -> str:
+    """Jump back to the position saved by :func:`save_cursor`."""
+    return "\0338"
+
+
 # ---- faces -----------------------------------------------------------------
 # (eyes, mouth) per state. Single-width glyphs only, so the box stays aligned.
 FACE_PARTS: dict[str, tuple[str, str]] = {
