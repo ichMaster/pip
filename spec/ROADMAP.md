@@ -21,7 +21,7 @@ v{major}.{phase}.{fix}
 
 | `major` | Track | Phase range |
 |---|---|---|
-| **0** | Creature (current) | `v0.0.x` |
+| **0** | Creature (current) | `v0.0.x` … `v0.3.x` |
 | **1** | Live Daemon | `v1.0.x` … `v1.5.x` |
 | **2** | Front-desk for agents | `v2.0.x` … `v2.7.x` |
 
@@ -36,6 +36,9 @@ v{major}.{phase}.{fix}
 | Version | Theme | Status | Detail |
 |---|---|---|---|
 | `v0.0.x` | The chat-tamagotchi (two-clock creature) | ✅ shipped | this repo · [CLAUDE.md](../CLAUDE.md) · [GUIDE_uk.md](../GUIDE_uk.md) |
+| `v0.1` | Stable status picture (in-place) | ⬜ planned | [creature/chat.py](../creature/chat.py) |
+| `v0.2` | Claude-style face set | ⬜ planned | [creature/render.py](../creature/render.py) |
+| `v0.3` | Async brain (off-thread) | ⬜ planned | [creature/brain.py](../creature/brain.py) · [chat.py](../creature/chat.py) |
 | `v1.0` | Transport & process skeleton | ⬜ planned | [live-daemon/](live-daemon/) |
 | `v1.1` | Live status, care & spontaneous voice | ⬜ planned | live-daemon |
 | `v1.2` | Asynchronous mind & canon chat | ⬜ planned | live-daemon |
@@ -48,16 +51,57 @@ Legend: ✅ shipped · 🟡 in progress · ⬜ planned · 🔭 future.
 
 ---
 
-## v0 — Creature *(shipped)* · `v0.0.x`
+## v0 — Creature · `v0.0` – `v0.3`
 
-The current program: a small creature that lives in the terminal chat, with needs that drain in real time and an LLM (or templated) voice.
+The base creature: a small thing that lives in the terminal chat, with needs that drain in real time and an LLM (or templated) voice. **`v0.0` is shipped**; `v0.1`–`v0.3` polish the single-process experience *before* the v1 daemon. **Same guardrails as v1** — stdlib only, one concept per change, preserve the two-clock split and the LLM→RuleBrain fallback, and **docs ship with code**.
 
-- **Two-clock design** — a pure-math **BODY** ([`creature/needs.py`](../creature/needs.py)) that ticks on real time, and a **MIND** ([`creature/brain.py`](../creature/brain.py)) consulted only when there's something to say.
+### v0.0 — The two-clock creature *(shipped)*
+- **BODY** ([`creature/needs.py`](../creature/needs.py)) ticks on real time; **MIND** ([`creature/brain.py`](../creature/brain.py)) is consulted only when there's something to say.
 - `RuleBrain` / `LLMBrain` behind one `Brain` protocol; LLM falls back to templates on any error; spontaneous nags stay templated.
 - Pure rendering ([`creature/render.py`](../creature/render.py)), orchestration ([`creature/pet.py`](../creature/pet.py)), the real-time REPL loop ([`creature/chat.py`](../creature/chat.py)), CLI ([`creature/cli.py`](../creature/cli.py)).
-- **Single process, foreground.** The creature only lives while its REPL is the foreground process.
+- **Single process, foreground**; bugfix/polish patches are `v0.0.1`, `v0.0.2`, … This becomes the **`solo`** run-mode once v1 lands.
 
-Patches to this line are `v0.0.1`, `v0.0.2`, … This becomes the **`solo`** run-mode once v1 lands.
+### v0.1 — Stable status picture *(requirement 2)*
+*Goal: the face + needs are one **persistent picture that updates in place** (like Claude Code's stable UI), not a fresh face block printed after every turn.*
+
+Today `run()` / `_handle` re-`print(status_line(…))` each interaction, so the terminal fills with a stack of stale faces.
+- Keep a **fixed status region** and redraw it in place with ANSI cursor control (cursor-up + clear-line, or save/restore), so the face/bars update without scrolling.
+- Chat lines scroll as normal; only the status block is redrawn. Refresh on a cadence (each loop pass / on change) so drain is visible live without spamming output.
+- Degrade gracefully where ANSI is ignored (fall back to an occasional reprint).
+- Pure render functions in [`render.py`](../creature/render.py) stay unchanged — this is loop/presentation work in [`chat.py`](../creature/chat.py).
+- **Acceptance:** across a session the face stays as one updating picture (no stack of old faces); feeding/talking updates it in place; bars visibly drift (clear with `--speed`).
+- **Forward link:** precursor to `v1.1`'s live-client full-frame redraw.
+- **Release:** `0.1.0`.
+
+### v0.2 — Claude-style face set *(requirement 3)*
+*Goal: several faces in a cleaner, Claude-adjacent aesthetic (the sparkle / minimal look), replacing the current ASCII set.*
+
+Today [`render.py`](../creature/render.py) has five faces (happy / ok / hungry / tired / sad) built from ASCII eyes + mouth.
+- Design a richer set of faces styled close to Claude Code's minimal look (e.g. the `✻`/`✶` sparkle motif), keeping **single-width glyphs** so the box stays aligned (verify width — many sparkle glyphs render double-width in some terminals).
+- Map states via the existing `face_state` cascade; consider adding states (e.g. `content`, `playful`) and a **`thinking` face** for v0.3's pending-reply state.
+- Update `FACE_PARTS` / `STATE_FACE` / `STATE_COLOR`; keep rendering pure and ANSI-degrading.
+- Refresh any face samples in [`GUIDE_uk.md`](../GUIDE_uk.md) / [`README.md`](../README.md).
+- Illustrative direction (final glyphs designed in this phase):
+  ```
+  content  ╭───────╮      thinking ╭───────╮
+           │ ✶   ✶ │               │ ✻   ✻ │
+           │  ‿‿‿  │               │   ·   │
+           ╰───────╯               ╰───────╯
+  ```
+- **Acceptance:** the creature shows several distinct, on-brand faces; box alignment holds across states; a thinking face appears during async replies; both `--rule` and LLM paths render them.
+- **Release:** `0.2.0`.
+
+### v0.3 — Async brain (off-thread) *(requirement 1)*
+*Goal: the LLM reply no longer freezes the loop — the body keeps ticking and pip can show it's thinking.*
+
+Today [`chat.py`](../creature/chat.py) calls `pet.respond("chat", …)` synchronously inside `_handle`, so the whole `run()` loop blocks for the ~1 s of an API call: the body clock stalls and input goes dead.
+- Run the brain call on a **background thread** (`threading` / `concurrent.futures`); the main loop keeps ticking the body and polling input.
+- Deliver the result back via a `queue.Queue`; apply the mood delta + append history **on the main thread** (keep the body single-threaded — the same invariant `v1.2` reuses, introduced here in miniature).
+- While a reply is pending, show the **`thinking` face** (v0.2) in the **stable picture** (v0.1); swap to the reply when it lands.
+- Unchanged: spontaneous nags stay templated/instant; `LLMBrain`→`RuleBrain` fallback; `--rule` stays instant.
+- **Acceptance:** send a chat line — the status/body keeps updating during the call (no freeze); the reply appears when ready; `Ctrl-C` still works; `--rule` unaffected.
+- **Forward link:** the single-process seed of `v1.2`'s daemon worker-pool async mind. *(A separate brain **process** is the v1 daemon, not v0 — v0.3 is off-thread, not off-process.)*
+- **Release:** `0.3.0`.
 
 ---
 
@@ -164,7 +208,7 @@ pip stops being one creature and becomes a **front-desk**: a catalog of agents, 
 
 The three project skills turn a phase into shipped, tracked work:
 
-1. **`/upload-issues spec/<track>/implementation/<version>-issues.md`** — split a phase into `PIP-xxx` GitHub issues with labels `pip::phase:<version>`, `pip::size:*`, `pip::area:*`. (v1 issue files live under [`live-daemon/implementation/`](live-daemon/); v2 under `vision/implementation/`.)
+1. **`/upload-issues spec/<track>/implementation/<version>-issues.md`** — split a phase into `PIP-xxx` GitHub issues with labels `pip::phase:<version>`, `pip::size:*`, `pip::area:*`. (v0 issue files live under `v0/implementation/`; v1 under [`live-daemon/implementation/`](live-daemon/); v2 under `vision/implementation/`.)
 2. **`/execute-issues pip::phase:<version>`** — implement each issue in dependency order, validate (`py_compile` + the documented smoke-test + acceptance vs. this roadmap), commit one-per-issue, push, close.
 3. **`/release-version <A.B.0>`** — when a phase's issues are all done, bump `VERSION`/`README.md`/`RELEASE.txt`, commit, annotated-tag `vA.B.0`, push.
 
