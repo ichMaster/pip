@@ -1,0 +1,6 @@
+# The voice: Anthropic model (Haiku). Optional -- without it, pip uses
+# simple templated lines and still runs.
+anthropic>=0.40.0
+
+# Rendering and input use the Python standard library only.
+# Input relies on `select` on stdin, which is Unix (macOS/Linux).
