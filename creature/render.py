@@ -36,6 +36,14 @@ def clear_line() -> str:
     return CLEAR_LINE
 
 
+CLEAR_BELOW = "\033[J"  # erase from the cursor to the end of the screen
+
+
+def clear_below() -> str:
+    """Erase everything from the cursor down (the rest of the screen)."""
+    return CLEAR_BELOW
+
+
 def hide_cursor() -> str:
     """Hide the cursor (avoids flicker during a redraw)."""
     return "\033[?25l"
