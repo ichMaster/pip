@@ -54,7 +54,7 @@ def _prompt() -> None:
 
 def _show_status(pet: Pet) -> None:
     """Print the framed status panel (face + bars) inline, indented to match."""
-    width = max(18, min(_term_width() - 2, STATUS_PANEL_MAX_WIDTH))
+    width = max(24, min(_term_width() - 2, STATUS_PANEL_MAX_WIDTH))
     for line in status_panel(pet.name, pet.needs, width):
         print("  " + line)
 

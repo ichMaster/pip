@@ -263,31 +263,33 @@ def columns(blocks: list[list[str]], *, gap: int = 1) -> list[str]:
     return rows
 
 
-#: Narrowest a standalone status panel may be drawn (keeps "hunger ####" intact).
-STATUS_PANEL_MIN_WIDTH = 18
+#: Narrowest a standalone status panel may be drawn (keeps the face + bars intact).
+STATUS_PANEL_MIN_WIDTH = 24
 
 # Below this terminal width the two-column banner won't fit; callers fall back
 # to a stacked status panel + plain help instead of smearing the frame.
-BANNER_MIN_WIDTH = 56
+BANNER_MIN_WIDTH = 62
 
 
 def status_panel(name: str, n: Needs, width: int,
                  state: str | None = None) -> list[str]:
-    """A framed ``pip`` panel: the compact face on top, then the needs bars.
+    """A framed ``pip`` panel: the face (eyes over mouth) beside the needs bars.
 
     Pure -- ``width`` is supplied by the caller. The frame is tinted by the
     creature's state color; the bars keep their own green/yellow/red. Pass
     ``state`` to force the face (e.g. ``"thinking"``).
     """
     st = _resolve_state(n, state)
-    inner = max(width, STATUS_PANEL_MIN_WIDTH) - 4
-    bw = max(6, min(24, inner - 7))      # "hunger " label is 7 columns
-    lines = [face(n, state=st),
-             f"hunger {bar(n.hunger, bw)}",
-             f"energy {bar(n.energy, bw)}",
-             f"mood   {bar(n.mood, bw)}"]
-    return box(lines, max(width, STATUS_PANEL_MIN_WIDTH),
-               title=name, color=STATE_COLOR[st])
+    eyes, mouth = FACE_PARTS[st]         # each face column is 5 cols wide
+    width = max(width, STATUS_PANEL_MIN_WIDTH)
+    inner = width - 4
+    bw = max(6, min(24, inner - 5 - 2 - 7))   # face(5) + gap(2) + "hunger "(7)
+    faces = [eyes, mouth.center(5), " " * 5]
+    bars = [f"hunger {bar(n.hunger, bw)}",
+            f"energy {bar(n.energy, bw)}",
+            f"mood   {bar(n.mood, bw)}"]
+    lines = [f"{faces[i]}  {bars[i]}" for i in range(3)]
+    return box(lines, width, title=name, color=STATE_COLOR[st])
 
 
 def welcome_banner(name: str, width: int, n: Needs) -> list[str]:
