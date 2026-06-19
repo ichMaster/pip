@@ -37,9 +37,9 @@ Platform note: input uses `select` on `sys.stdin`, so this runs on Unix (macOS/L
 | [creature/needs.py](creature/needs.py) | **BODY** — `Needs`, drain math, descriptors. Pure, no I/O, no LLM. |
 | [creature/brain.py](creature/brain.py) | **MIND** — `Brain` Protocol, `RuleBrain`, `LLMBrain`, `make_brain`. |
 | [creature/config.py](creature/config.py) | LLM config (`MODEL`, `MAX_TOKENS`, `has_api_key`) loaded from `.env`. |
-| [creature/render.py](creature/render.py) | Faces, bars, `status_line` — pure functions of a `Needs`. Sole owner of ANSI/box-drawing. |
+| [creature/render.py](creature/render.py) | Faces, bars, `status_line` — pure functions of a `Needs`. Sole owner of ANSI/box-drawing (incl. cursor-control primitives: `cursor_up`, `clear_line`, `clear_below`, `save_cursor`/`restore_cursor`, `hide_cursor`/`show_cursor`, `STATUS_HEIGHT`). |
 | [creature/pet.py](creature/pet.py) | `Pet` — orchestration; the only place body and mind meet. |
-| [creature/chat.py](creature/chat.py) | `run()` — the real-time loop (tick → maybe speak → non-blocking input). |
+| [creature/chat.py](creature/chat.py) | `run()` — the real-time loop (tick → maybe speak → non-blocking input). Redraws the status block **in place** as a footer (no stacking); owns the cursor arithmetic. |
 | [creature/cli.py](creature/cli.py) | `main()` — argparse + wiring. |
 
 ## Architecture — the "two-clock" design
@@ -54,9 +54,9 @@ The central idea (stated in [creature/__init__.py](creature/__init__.py)): a **B
 
 - **`Pet`** owns a `Needs` + a `Brain` and is the only place body and mind meet. `act(kind)` applies the numeric effects from the `ACTION_EFFECTS` table (`/feed` `/play` `/sleep`); `respond(kind, text)` asks the brain for a line *and* applies the brain's returned `mood` delta back onto the body. Chat history keeps the last 8 turns; only the last 4 reach the LLM.
 
-- **`run(pet)`** is the loop: tick the body by real `dt`, maybe emit a spontaneous line (rate-limited via `last_spontaneous`, scaled by `speed`), then non-blocking line input via `select.select(..., timeout=0.2)`. `_handle()` dispatches slash commands; anything else becomes a `chat` turn.
+- **`run(pet)`** is the loop: tick the body by real `dt`, maybe emit a spontaneous line (rate-limited via `last_spontaneous`, scaled by `speed`), then non-blocking line input via `select.select(..., timeout=0.2)`. `_handle()` decides *what* to say (returns `(lines, quit?)` and applies care effects); `run()` decides *how* to paint it. The status block (face + bars) is a **footer redrawn in place** — `run()` walks the cursor up over the footer, clears, reprints the conversation, repaints the footer (so no stack of stale faces); on idle passes it refreshes the footer in place (via `save_cursor`/`restore_cursor`) only when the rendered status changed, so bars drift live without disturbing typed input. Non-TTY output (`isatty()` false) skips all cursor control and degrades to a plain log; the cursor is restored on exit (`/quit`, EOF, Ctrl-C) via a `finally`. **The two-clock split is unchanged — this is presentation only; the body is never touched here.**
 
-- **Rendering** is pure functions (`face_state`, `face_block`, `bar`, `status_line`) driven entirely by `Needs`. `face_state` is a priority cascade (physical needs beat emotional; "happy" only when all comfortable). ANSI codes degrade gracefully.
+- **Rendering** is pure functions (`face_state`, `face_block`, `bar`, `status_line`) driven entirely by `Needs`. `face_state` is a priority cascade (physical needs beat emotional; "happy" only when all comfortable). ANSI codes degrade gracefully. `render.py` is the **sole owner of ANSI** — including the cursor-control escape primitives the in-place redraw uses; the *arithmetic* of when/how far to move the cursor lives in `chat.py`.
 
 ## Configuration (`.env`)
 
