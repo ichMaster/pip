@@ -19,6 +19,33 @@ RESET, DIM, BOLD = _ansi(0), _ansi(2), _ansi(1)
 CYAN, GREEN, YELLOW, RED = _ansi(36), _ansi(32), _ansi(33), _ansi(31)
 
 
+# ---- cursor control (for redrawing a fixed region in place) ----------------
+# render.py is the *sole owner* of ANSI, so the primitives needed to redraw the
+# status block in place live here too. They return escape strings (or "") and
+# perform no I/O -- chat.py composes them; it never emits raw escapes itself.
+CLEAR_LINE = "\r\033[2K"  # carriage return, then erase the whole line
+
+
+def cursor_up(n: int) -> str:
+    """Escape sequence to move the cursor up ``n`` lines (``""`` when n <= 0)."""
+    return f"\033[{n}A" if n > 0 else ""
+
+
+def clear_line() -> str:
+    """Return to column 0 and erase the current line."""
+    return CLEAR_LINE
+
+
+def hide_cursor() -> str:
+    """Hide the cursor (avoids flicker during a redraw)."""
+    return "\033[?25l"
+
+
+def show_cursor() -> str:
+    """Show the cursor again; always paired with :func:`hide_cursor` on exit."""
+    return "\033[?25h"
+
+
 # ---- faces -----------------------------------------------------------------
 # (eyes, mouth) per state. Single-width glyphs only, so the box stays aligned.
 FACE_PARTS: dict[str, tuple[str, str]] = {
@@ -31,6 +58,11 @@ FACE_PARTS: dict[str, tuple[str, str]] = {
 STATE_COLOR = {"happy": GREEN, "ok": CYAN, "hungry": YELLOW, "tired": YELLOW, "sad": RED}
 STATE_FACE = {"happy": "(^_^)", "ok": "(._.)", "hungry": "(O_O)",
               "tired": "(-_-)", "sad": "(;_;)"}
+
+#: How many lines the status block occupies -- the boxed face (``face_block``)
+#: and ``status_line`` are both 4 lines, so an in-place redraw moves the cursor
+#: up this many lines. Keep in sync with ``face_block``.
+STATUS_HEIGHT = 4
 
 
 def face_state(n: Needs) -> str:
