@@ -253,3 +253,27 @@ def columns(blocks: list[list[str]], *, gap: int = 1) -> list[str]:
         cells = [(b[i] if i < len(b) else " " * w) for b, w in zip(blocks, widths)]
         rows.append(sep.join(cells))
     return rows
+
+
+# Below this terminal width the two-column banner won't fit; callers fall back
+# to a plain greeting + help instead of smearing the frame.
+BANNER_MIN_WIDTH = 54
+
+
+def welcome_banner(name: str, width: int, n: Needs) -> list[str]:
+    """A framed, two-column startup banner: greeting | quick-help.
+
+    Pure -- ``width`` is supplied by the caller (chat.py measures the terminal
+    via ``shutil.get_terminal_size``). Below :data:`BANNER_MIN_WIDTH` the caller
+    should use a plain fallback instead.
+    """
+    gap = 2
+    help_lines = ["/feed /play /sleep   care for me",
+                  "/status /help /quit  info",
+                  "anything else        just talk"]
+    help_w = max(len(line) for line in help_lines) + 4   # + border + padding
+    greet_w = max(16, width - gap - help_w)
+    greet_lines = [face(n), "hi! so glad", "you're here."]
+    left = box(greet_lines, greet_w, title=name, color=CYAN)
+    right = box(help_lines, help_w, title="commands", color=CYAN)
+    return columns([left, right], gap=gap)

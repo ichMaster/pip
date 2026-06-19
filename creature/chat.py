@@ -17,13 +17,15 @@ Input uses ``select`` on stdin, which is Unix-only (macOS/Linux).
 from __future__ import annotations
 
 import select
+import shutil
 import sys
 import time
 
 from .pet import Pet
-from .render import (BOLD, CLEAR_LINE, CYAN, DIM, RESET, STATUS_HEIGHT,
-                     clear_below, cursor_up, face, hide_cursor, restore_cursor,
-                     save_cursor, show_cursor, status_line)
+from .render import (BANNER_MIN_WIDTH, BOLD, CLEAR_LINE, CYAN, DIM, RESET,
+                     STATUS_HEIGHT, clear_below, cursor_up, face, hide_cursor,
+                     restore_cursor, save_cursor, show_cursor, status_line,
+                     welcome_banner)
 
 HELP = ("  /feed  /play  /sleep   care for me\n"
         "  /status  /help  /quit   info\n"
@@ -43,6 +45,11 @@ PROMPT = f"  {DIM}you>{RESET} "
 def _interactive() -> bool:
     """True on a real terminal; piped/redirected output skips cursor control."""
     return sys.stdout.isatty()
+
+
+def _term_width() -> int:
+    """Current terminal width in columns (falls back sanely when unknown)."""
+    return shutil.get_terminal_size().columns
 
 
 def _say(name: str, text: str) -> str:
@@ -106,12 +113,29 @@ def _refresh_status(status: str) -> None:
     sys.stdout.flush()
 
 
+def _draw_intro(pet: Pet) -> None:
+    """A framed welcome banner on a wide terminal; a plain greeting otherwise.
+
+    The banner scrolls into history like any other line -- it is not the
+    persistent footer. Indented two spaces to line up with the rest of the UI.
+    """
+    name = pet.name
+    print()
+    avail = _term_width() - 2          # leave room for the 2-space indent
+    if _interactive() and avail >= BANNER_MIN_WIDTH:
+        for line in welcome_banner(name, avail, pet.needs):
+            print("  " + line)
+        print()
+    else:                              # piped or too narrow: plain log
+        print(f"  {BOLD}{face(pet.needs)} {name}{RESET} blinks awake.\n")
+        print(HELP + "\n")
+        print(_say(name, "hi! i'm so glad you're here."))
+
+
 def run(pet: Pet) -> None:
     name = pet.name
     interactive = _interactive()
-    print(f"\n  {BOLD}{face(pet.needs)} {name}{RESET} blinks awake.\n")
-    print(HELP + "\n")
-    print(_say(name, "hi! i'm so glad you're here."))
+    _draw_intro(pet)
     _draw_footer(pet)
     shown = status_line(name, pet.needs)   # what the footer currently shows
 
