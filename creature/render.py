@@ -233,19 +233,17 @@ def box(lines: list[str], width: int, *, title: str | None = None,
     """Wrap ``lines`` in a bordered box exactly ``width`` columns wide.
 
     Content is padded/truncated to fit (the frame never smears). ``title`` rides
-    in the top border; ``color`` colors the **frame only**, so already-colored
-    content (e.g. the needs bars) keeps its own colors. Pure -- returns strings.
+    in the top border; ``color`` wraps the whole frame. Pure -- returns strings.
     """
     width = max(width, 4)
     inner = width - 4           # one space of padding inside each "│" border
-
-    def c(s: str) -> str:
-        return f"{color}{s}{RESET}" if color else s
-
     top = _title_border(title, width) if title else "╭" + "─" * (width - 2) + "╮"
+    body = ["│ " + _fit(line, inner) + " │" for line in lines]
     bottom = "╰" + "─" * (width - 2) + "╯"
-    body = [c("│ ") + _fit(line, inner) + c(" │") for line in lines]
-    return [c(top), *body, c(bottom)]
+    out = [top, *body, bottom]
+    if color:
+        out = [f"{color}{line}{RESET}" for line in out]
+    return out
 
 
 def columns(blocks: list[list[str]], *, gap: int = 1) -> list[str]:
@@ -263,48 +261,25 @@ def columns(blocks: list[list[str]], *, gap: int = 1) -> list[str]:
     return rows
 
 
-#: Narrowest a standalone status panel may be drawn (keeps the face + bars intact).
-STATUS_PANEL_MIN_WIDTH = 24
-
 # Below this terminal width the two-column banner won't fit; callers fall back
-# to a stacked status panel + plain help instead of smearing the frame.
-BANNER_MIN_WIDTH = 62
-
-
-def status_panel(name: str, n: Needs, width: int,
-                 state: str | None = None) -> list[str]:
-    """A framed ``pip`` panel: the face (eyes over mouth) beside the needs bars.
-
-    Pure -- ``width`` is supplied by the caller. The frame is tinted by the
-    creature's state color; the bars keep their own green/yellow/red. Pass
-    ``state`` to force the face (e.g. ``"thinking"``).
-    """
-    st = _resolve_state(n, state)
-    eyes, mouth = FACE_PARTS[st]         # each face column is 5 cols wide
-    width = max(width, STATUS_PANEL_MIN_WIDTH)
-    inner = width - 4
-    bw = max(6, min(24, inner - 5 - 2 - 7))   # face(5) + gap(2) + "hunger "(7)
-    faces = [eyes, mouth.center(5), " " * 5]
-    bars = [f"hunger {bar(n.hunger, bw)}",
-            f"energy {bar(n.energy, bw)}",
-            f"mood   {bar(n.mood, bw)}"]
-    lines = [f"{faces[i]}  {bars[i]}" for i in range(3)]
-    return box(lines, width, title=name, color=STATE_COLOR[st])
+# to a plain greeting + help instead of smearing the frame.
+BANNER_MIN_WIDTH = 54
 
 
 def welcome_banner(name: str, width: int, n: Needs) -> list[str]:
-    """A framed, two-column startup banner: the ``pip`` status panel | quick-help.
+    """A framed, two-column startup banner: greeting | quick-help.
 
-    The status (face + bars) lives in the first panel, so it greets you *before*
-    the chat. Pure -- ``width`` is supplied by the caller (chat.py measures the
-    terminal). Below :data:`BANNER_MIN_WIDTH` the caller uses a plain fallback.
+    Pure -- ``width`` is supplied by the caller (chat.py measures the terminal
+    via ``shutil.get_terminal_size``). Below :data:`BANNER_MIN_WIDTH` the caller
+    should use a plain fallback instead.
     """
     gap = 2
     help_lines = ["/feed /play /sleep   care for me",
                   "/status /help /quit  info",
                   "anything else        just talk"]
     help_w = max(len(line) for line in help_lines) + 4   # + border + padding
-    status_w = max(STATUS_PANEL_MIN_WIDTH, width - gap - help_w)
-    left = status_panel(name, n, status_w)
+    greet_w = max(16, width - gap - help_w)
+    greet_lines = [face(n), "hi! so glad", "you're here."]
+    left = box(greet_lines, greet_w, title=name, color=CYAN)
     right = box(help_lines, help_w, title="commands", color=CYAN)
     return columns([left, right], gap=gap)
