@@ -1,6 +1,20 @@
 pip — release notes
 ===================
 
+Version 0.2.0 (2026-06-20)
+---------------------------
+- v0.2 Claude-style face set: replaced the ASCII faces with a minimal,
+  sparkle aesthetic -- happy (✦‿✦), content (✶‿✶), ok (◦‿◦), hungry (✺o✺),
+  tired (-_-), sad (⌢_⌢) -- and added a new `content` state.
+- Added a `thinking` face (✻⋅✻) plus an explicit `state=` render override on
+  face/face_block/status_line (the seam v0.4 uses to show it during async
+  replies); face_state never returns it, default behavior unchanged.
+- Width-safety guard (unicodedata.east_asian_width) asserts every face glyph
+  is single-width at import, so a double-width glyph fails loudly instead of
+  smearing the box.
+- Docs: GUIDE_uk chapter on the new faces/guard/thinking seam; README example
+  and face legend; CLAUDE.md render notes.
+
 Version 0.1.0 (2026-06-19)
 ---------------------------
 - v0.1 Stable status picture: the face + bars are now one picture redrawn in
