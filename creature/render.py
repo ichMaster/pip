@@ -8,6 +8,8 @@ program can stay about behavior, not presentation.
 
 from __future__ import annotations
 
+import unicodedata
+
 from .needs import Needs
 
 # ---- ANSI helpers (degrade gracefully on terminals that ignore them) -------
@@ -65,17 +67,48 @@ def restore_cursor() -> str:
 
 
 # ---- faces -----------------------------------------------------------------
-# (eyes, mouth) per state. Single-width glyphs only, so the box stays aligned.
+# (eyes, mouth) per state. The look is Claude-adjacent -- a minimal, sparkle
+# motif -- and every glyph is single-width (verified by _assert_faces_single_width
+# below), so the 7-wide box always stays aligned.
 FACE_PARTS: dict[str, tuple[str, str]] = {
-    "happy":  ("^   ^", "\\_/"),
-    "ok":     ("o   o", "---"),
-    "hungry": ("O   O", " o "),
-    "tired":  ("-   -", "~~~"),
-    "sad":    (";   ;", "..."),
+    "happy":   ("✦   ✦", "‿‿‿"),
+    "content": ("✶   ✶", " ‿ "),
+    "ok":      ("◦   ◦", " - "),
+    "hungry":  ("✺   ✺", " o "),
+    "tired":   ("-   -", " ~ "),
+    "sad":     ("⌢   ⌢", "..."),
 }
-STATE_COLOR = {"happy": GREEN, "ok": CYAN, "hungry": YELLOW, "tired": YELLOW, "sad": RED}
-STATE_FACE = {"happy": "(^_^)", "ok": "(._.)", "hungry": "(O_O)",
-              "tired": "(-_-)", "sad": "(;_;)"}
+STATE_COLOR = {"happy": GREEN, "content": GREEN, "ok": CYAN,
+               "hungry": YELLOW, "tired": YELLOW, "sad": RED}
+STATE_FACE = {"happy": "(✦‿✦)", "content": "(✶‿✶)", "ok": "(◦‿◦)",
+              "hungry": "(✺o✺)", "tired": "(-_-)", "sad": "(⌢_⌢)"}
+
+
+# ---- width safety ----------------------------------------------------------
+# Sparkle glyphs are tempting but some render double-width, which would smear the
+# box. East Asian Width is the stdlib proxy: accept narrow/neutral/halfwidth,
+# reject wide/full and the CJK-ambiguous ones. (The box frame itself is exempt --
+# it is "ambiguous" too but unchanged and already aligns in practice.)
+_SAFE_WIDTHS = {"Na", "N", "H"}  # narrow / neutral / halfwidth -> one column
+
+
+def is_single_width(ch: str) -> bool:
+    """True if ``ch`` reliably occupies a single terminal column."""
+    return unicodedata.east_asian_width(ch) in _SAFE_WIDTHS
+
+
+def _assert_faces_single_width() -> None:
+    """Fail loudly at import if any face glyph would break the box alignment."""
+    glyphs = {ch for eyes, mouth in FACE_PARTS.values() for ch in eyes + mouth}
+    glyphs |= {ch for compact in STATE_FACE.values() for ch in compact}
+    bad = sorted(c for c in glyphs if c != " " and not is_single_width(c))
+    if bad:
+        raise AssertionError(
+            "face glyphs must be single-width (else the box smears): "
+            + ", ".join(f"U+{ord(c):04X} {c!r}" for c in bad))
+
+
+_assert_faces_single_width()
 
 #: How many lines the status block occupies -- the boxed face (``face_block``)
 #: and ``status_line`` are both 4 lines, so an in-place redraw moves the cursor
@@ -96,7 +129,9 @@ def face_state(n: Needs) -> str:
     if n.mood < 0.3:
         return "sad"
     if n.mood > 0.75 and n.hunger > 0.5 and n.energy > 0.5:
-        return "happy"
+        return "happy"          # euphoric: everything is great
+    if n.mood > 0.5 and n.hunger > 0.5 and n.energy > 0.5:
+        return "content"        # comfortable, just not over the moon
     return "ok"
 
 
