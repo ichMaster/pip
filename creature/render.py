@@ -71,17 +71,22 @@ def restore_cursor() -> str:
 # motif -- and every glyph is single-width (verified by _assert_faces_single_width
 # below), so the 7-wide box always stays aligned.
 FACE_PARTS: dict[str, tuple[str, str]] = {
-    "happy":   ("✦   ✦", "‿‿‿"),
-    "content": ("✶   ✶", " ‿ "),
-    "ok":      ("◦   ◦", " - "),
-    "hungry":  ("✺   ✺", " o "),
-    "tired":   ("-   -", " ~ "),
-    "sad":     ("⌢   ⌢", "..."),
+    "happy":    ("✦   ✦", "‿‿‿"),
+    "content":  ("✶   ✶", " ‿ "),
+    "ok":       ("◦   ◦", " - "),
+    "hungry":   ("✺   ✺", " o "),
+    "tired":    ("-   -", " ~ "),
+    "sad":      ("⌢   ⌢", "..."),
+    # `thinking` is a transient UI state (a reply is in flight), not derived
+    # from needs: face_state never returns it; it is shown only via the explicit
+    # `state=` override (wired up live in v0.3's async brain).
+    "thinking": ("✻   ✻", " ⋅ "),
 }
-STATE_COLOR = {"happy": GREEN, "content": GREEN, "ok": CYAN,
-               "hungry": YELLOW, "tired": YELLOW, "sad": RED}
+STATE_COLOR = {"happy": GREEN, "content": GREEN, "ok": CYAN, "hungry": YELLOW,
+               "tired": YELLOW, "sad": RED, "thinking": CYAN}
 STATE_FACE = {"happy": "(✦‿✦)", "content": "(✶‿✶)", "ok": "(◦‿◦)",
-              "hungry": "(✺o✺)", "tired": "(-_-)", "sad": "(⌢_⌢)"}
+              "hungry": "(✺o✺)", "tired": "(-_-)", "sad": "(⌢_⌢)",
+              "thinking": "(✻⋅✻)"}
 
 
 # ---- width safety ----------------------------------------------------------
@@ -135,14 +140,23 @@ def face_state(n: Needs) -> str:
     return "ok"
 
 
-def face(n: Needs) -> str:
-    """The compact one-line face, e.g. ``(^_^)``."""
-    return STATE_FACE[face_state(n)]
+def _resolve_state(n: Needs, state: str | None) -> str:
+    """The state to draw: an explicit override, else the needs-derived one.
+
+    The override is how a *transient UI* state like ``"thinking"`` (a reply is
+    in flight) gets shown -- it isn't reachable from the needs cascade.
+    """
+    return state if state is not None else face_state(n)
 
 
-def face_block(n: Needs) -> list[str]:
-    """The four-line boxed face."""
-    eyes, mouth = FACE_PARTS[face_state(n)]
+def face(n: Needs, state: str | None = None) -> str:
+    """The compact one-line face, e.g. ``(✦‿✦)``."""
+    return STATE_FACE[_resolve_state(n, state)]
+
+
+def face_block(n: Needs, state: str | None = None) -> list[str]:
+    """The four-line boxed face (pass ``state`` to force one, e.g. thinking)."""
+    eyes, mouth = FACE_PARTS[_resolve_state(n, state)]
     return ["╭───────╮",
             "│" + eyes.center(7) + "│",
             "│" + mouth.center(7) + "│",
@@ -156,10 +170,15 @@ def bar(value: float, width: int = 10) -> str:
     return color + "#" * filled + DIM + "-" * (width - filled) + RESET
 
 
-def status_line(name: str, n: Needs) -> str:
-    """Boxed face on the left, the three needs bars stacked on the right."""
-    color = STATE_COLOR[face_state(n)]
-    box = face_block(n)
+def status_line(name: str, n: Needs, state: str | None = None) -> str:
+    """Boxed face on the left, the three needs bars stacked on the right.
+
+    Pass ``state`` to force the face (e.g. ``"thinking"`` while a reply is in
+    flight); without it the face follows the body via ``face_state``.
+    """
+    st = _resolve_state(n, state)
+    color = STATE_COLOR[st]
+    box = face_block(n, state=st)
     right = [f"{DIM}{name}{RESET}",
              f"hunger {bar(n.hunger)}",
              f"energy {bar(n.energy)}",
