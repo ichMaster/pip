@@ -21,7 +21,7 @@ v{major}.{phase}.{fix}
 
 | `major` | Track | Phase range |
 |---|---|---|
-| **0** | Creature (current) | `v0.0.x` … `v0.3.x` |
+| **0** | Creature (current) | `v0.0.x` … `v0.4.x` |
 | **1** | Live Daemon | `v1.0.x` … `v1.5.x` |
 | **2** | Front-desk for agents | `v2.0.x` … `v2.7.x` |
 
@@ -38,7 +38,8 @@ v{major}.{phase}.{fix}
 | `v0.0.x` | The chat-tamagotchi (two-clock creature) | ✅ shipped | this repo · [CLAUDE.md](../CLAUDE.md) · [GUIDE_uk.md](../GUIDE_uk.md) |
 | `v0.1` | Stable status picture (in-place) | ⬜ planned | [creature/chat.py](../creature/chat.py) |
 | `v0.2` | Claude-style face set | ⬜ planned | [creature/render.py](../creature/render.py) |
-| `v0.3` | Async brain (off-thread) | ⬜ planned | [creature/brain.py](../creature/brain.py) · [chat.py](../creature/chat.py) |
+| `v0.3` | Framed UI redesign (welcome banner & panels) | ⬜ planned | [creature/render.py](../creature/render.py) |
+| `v0.4` | Async brain (off-thread) | ⬜ planned | [creature/brain.py](../creature/brain.py) · [chat.py](../creature/chat.py) |
 | `v1.0` | Transport & process skeleton | ⬜ planned | [live-daemon/](live-daemon/) |
 | `v1.1` | Live status, care & spontaneous voice | ⬜ planned | live-daemon |
 | `v1.2` | Asynchronous mind & canon chat | ⬜ planned | live-daemon |
@@ -51,9 +52,9 @@ Legend: ✅ shipped · 🟡 in progress · ⬜ planned · 🔭 future.
 
 ---
 
-## v0 — Creature · `v0.0` – `v0.3`
+## v0 — Creature · `v0.0` – `v0.4`
 
-The base creature: a small thing that lives in the terminal chat, with needs that drain in real time and an LLM (or templated) voice. **`v0.0` is shipped**; `v0.1`–`v0.3` polish the single-process experience *before* the v1 daemon. **Same guardrails as v1** — stdlib only, one concept per change, preserve the two-clock split and the LLM→RuleBrain fallback, and **docs ship with code**.
+The base creature: a small thing that lives in the terminal chat, with needs that drain in real time and an LLM (or templated) voice. **`v0.0` is shipped**; `v0.1`–`v0.4` polish the single-process experience *before* the v1 daemon. **Same guardrails as v1** — stdlib only, one concept per change, preserve the two-clock split and the LLM→RuleBrain fallback, and **docs ship with code**.
 
 ### v0.0 — The two-clock creature *(shipped)*
 - **BODY** ([`creature/needs.py`](../creature/needs.py)) ticks on real time; **MIND** ([`creature/brain.py`](../creature/brain.py)) is consulted only when there's something to say.
@@ -78,7 +79,7 @@ Today `run()` / `_handle` re-`print(status_line(…))` each interaction, so the 
 
 Today [`render.py`](../creature/render.py) has five faces (happy / ok / hungry / tired / sad) built from ASCII eyes + mouth.
 - Design a richer set of faces styled close to Claude Code's minimal look (e.g. the `✻`/`✶` sparkle motif), keeping **single-width glyphs** so the box stays aligned (verify width — many sparkle glyphs render double-width in some terminals).
-- Map states via the existing `face_state` cascade; consider adding states (e.g. `content`, `playful`) and a **`thinking` face** for v0.3's pending-reply state.
+- Map states via the existing `face_state` cascade; consider adding states (e.g. `content`, `playful`) and a **`thinking` face** for v0.4's pending-reply state.
 - Update `FACE_PARTS` / `STATE_FACE` / `STATE_COLOR`; keep rendering pure and ANSI-degrading.
 - Refresh any face samples in [`GUIDE_uk.md`](../GUIDE_uk.md) / [`README.md`](../README.md).
 - Illustrative direction (final glyphs designed in this phase):
@@ -91,7 +92,20 @@ Today [`render.py`](../creature/render.py) has five faces (happy / ok / hungry /
 - **Acceptance:** the creature shows several distinct, on-brand faces; box alignment holds across states; a thinking face appears during async replies; both `--rule` and LLM paths render them.
 - **Release:** `0.2.0`.
 
-### v0.3 — Async brain (off-thread) *(requirement 1)*
+### v0.3 — Framed UI redesign *(new)*
+*Goal: a cleaner, Claude-Code-adjacent presentation — a width-aware welcome banner and framed, colored panels — while keeping the natural-scrollback chat model (no full-screen takeover).*
+
+Today the UI is a face block + three needs bars ([`status_line`](../creature/render.py)) drawn as an in-place footer (v0.1) — there is no welcome banner, no boxed/columned panels, and the layout is a fixed width regardless of terminal size.
+- Add a **welcome banner** on startup: a bordered, colored box (reuse the box-drawing already in [`render.py`](../creature/render.py)) with a two-column layout (e.g. greeting | quick-help), styled close to Claude Code's framed panels.
+- Make the frame **width-aware** via stdlib `shutil.get_terminal_size()` (no new dependency) so boxes/panels fill the terminal and degrade on narrow widths; recompute on redraw.
+- Keep it all as **pure render functions** in [`render.py`](../creature/render.py) (the sole ANSI owner); [`chat.py`](../creature/chat.py) only places them. Glyphs stay **single-width** (the import-time width assertion still guards the box); ANSI still degrades where ignored.
+- **Preserve the scrollback chat model** — conversation scrolls in the normal terminal; the status stays an in-place footer. **No `curses`/alternate-screen TUI** at this stage; a full-screen frame is the `v1.1`/`v2.6` client, not v0.
+- Refresh the UI samples in [`GUIDE_uk.md`](../GUIDE_uk.md) / [`README.md`](../README.md).
+- **Acceptance:** startup shows a framed, colored welcome banner; panels are boxed and aligned; resizing the terminal reflows the frame (boxes fit the width, no smearing); piped/non-TTY output degrades to a plain log; the two-clock split and footer behavior are unchanged.
+- **Forward link:** the visual groundwork for `v1.1`'s live full-frame client and `v2.6`'s framed fleet TUI — raw-ANSI and scrollback-preserving here, not a screen takeover.
+- **Release:** `0.3.0`.
+
+### v0.4 — Async brain (off-thread) *(requirement 1)*
 *Goal: the LLM reply no longer freezes the loop — the body keeps ticking and pip can show it's thinking.*
 
 Today [`chat.py`](../creature/chat.py) calls `pet.respond("chat", …)` synchronously inside `_handle`, so the whole `run()` loop blocks for the ~1 s of an API call: the body clock stalls and input goes dead.
@@ -100,8 +114,8 @@ Today [`chat.py`](../creature/chat.py) calls `pet.respond("chat", …)` synchron
 - While a reply is pending, show the **`thinking` face** (v0.2) in the **stable picture** (v0.1); swap to the reply when it lands.
 - Unchanged: spontaneous nags stay templated/instant; `LLMBrain`→`RuleBrain` fallback; `--rule` stays instant.
 - **Acceptance:** send a chat line — the status/body keeps updating during the call (no freeze); the reply appears when ready; `Ctrl-C` still works; `--rule` unaffected.
-- **Forward link:** the single-process seed of `v1.2`'s daemon worker-pool async mind. *(A separate brain **process** is the v1 daemon, not v0 — v0.3 is off-thread, not off-process.)*
-- **Release:** `0.3.0`.
+- **Forward link:** the single-process seed of `v1.2`'s daemon worker-pool async mind. *(A separate brain **process** is the v1 daemon, not v0 — v0.4 is off-thread, not off-process.)*
+- **Release:** `0.4.0`.
 
 ---
 
