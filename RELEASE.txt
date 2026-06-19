@@ -1,6 +1,20 @@
 pip — release notes
 ===================
 
+Version 0.1.0 (2026-06-19)
+---------------------------
+- v0.1 Stable status picture: the face + bars are now one picture redrawn in
+  place at the bottom -- no more stack of stale faces; feeding/playing/talking
+  updates it in place.
+- Bars and face drift live while idle (in place), clearer with --speed.
+- New cursor-control primitives in render.py (cursor_up, clear_line,
+  clear_below, save/restore cursor, hide/show cursor, STATUS_HEIGHT); render.py
+  stays the sole ANSI owner, chat.py owns the cursor arithmetic.
+- Graceful degradation: non-TTY/piped output skips cursor control (plain log);
+  cursor restored on exit (/quit, EOF, Ctrl-C).
+- Docs: GUIDE_uk chapter on the in-place status picture; CLAUDE.md and README
+  updated.
+
 Version 0.0.1 (2026-06-19)
 ---------------------------
 - The two-clock creature: a pure-math BODY (needs drain in real wall-clock
