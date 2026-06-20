@@ -158,8 +158,9 @@ This track delivers five changes; they land across the phases below:
 *Talk to pip and get an in-character LLM reply, with the body never freezing during the call.*
 - `creature/pet.py`: add `snapshot()` (copy Needs + history on the main thread), `think(kind, text, ctx)` (pure; calls the brain on the snapshot), `apply_reply(kind, text, reply)` (apply mood delta + append history on the main thread). Document the single-thread-body contract.
 - Server: a small `ThreadPoolExecutor`; on `chat`/`act`, broadcast `thinking`, submit `think`, hand the reply back via a `queue.Queue`; drain each tick → `apply_reply` → broadcast `say` + `status`.
+- **Interaction state machine** (server, main thread): a small, explicit `IDLE → THINKING → IDLE` machine layered over the existing `thinking` render seam (the `state=` override in [`render.py`](../creature/render.py), from v0.2). It makes the interleavings the daemon now allows well-defined: a `chat` arriving while `THINKING` is **enqueued (FIFO)**, never dispatched as a second concurrent call; a care `act` applies its numeric effect immediately in **any** state; a spontaneous nag is **suppressed while `THINKING`**. The machine is what emits the `thinking`/`say` frames and selects the face state. **It lives on the interaction layer only — the body (`Needs`) is continuous drain, never a state — so the two-clock split is preserved.**
 - Chat routed to `LLMBrain` (canon `SYSTEM`); preserve LLM→RuleBrain fallback; keep spontaneous templated/instant (not via API).
-- **Acceptance:** send a chat line — bars keep moving during the ~1 s call; reply is in pip's voice; `--rule`/no key still works offline; feeding mid-chat behaves. *(Completes req 3 & 4.)*
+- **Acceptance:** send a chat line — bars keep moving during the ~1 s call; reply is in pip's voice; `--rule`/no key still works offline; feeding mid-chat behaves; a second chat sent mid-think **queues** (no concurrent call) and a spontaneous nag never interrupts a pending reply. *(Completes req 3 & 4.)*
 - **Release:** `1.2.0`.
 
 ### v1.3 — Session memory *(req 5)*
