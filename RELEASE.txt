@@ -1,6 +1,22 @@
 pip — release notes
 ===================
 
+Version 0.3.0 (2026-06-20)
+---------------------------
+- Framed welcome banner on startup (two columns: greeting | quick-help),
+  width-aware via shutil.get_terminal_size; reusable pure box()/columns()
+  framing primitives in render.py.
+- Status (face + bars) is now shown on demand -- at startup, after a care
+  action (/feed, /play, /sleep), and on /status -- instead of a live
+  in-place footer.
+- Dropped the live in-place footer: its cursor-driven redraw corrupted the
+  screen on spontaneous lines and wrapped/emoji LLM replies. The on-demand
+  model emits zero cursor-control escapes, so it cannot corrupt and piped
+  output stays clean. (A live, pinned status returns with the v1.1
+  full-screen client.)
+- Docs refreshed (GUIDE_uk, README, CLAUDE) with the framed UI and the
+  rationale for on-demand status.
+
 Version 0.2.0 (2026-06-20)
 ---------------------------
 - v0.2 Claude-style face set: replaced the ASCII faces with a minimal,
