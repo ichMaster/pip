@@ -110,10 +110,10 @@ Today the UI is a face block + three needs bars ([`status_line`](../creature/ren
 
 Today [`chat.py`](../creature/chat.py) calls `pet.respond("chat", …)` synchronously inside `_handle`, so the whole `run()` loop blocks for the ~1 s of an API call: the body clock stalls and input goes dead.
 - Run the brain call on a **background thread** (`threading` / `concurrent.futures`); the main loop keeps ticking the body and polling input.
-- Deliver the result back via a `queue.Queue`; apply the mood delta + append history **on the main thread** (keep the body single-threaded — the same invariant `v1.2` reuses, introduced here in miniature).
-- While a reply is pending, show the **`thinking` face** (v0.2) in the **stable picture** (v0.1); swap to the reply when it lands.
+- Split `Pet.respond` into `snapshot()` / `think()` / `apply_reply()`: the worker reads an immutable **snapshot**; the **main thread is the body's only writer** (mood delta + history). Deliver results back via a `queue.Queue`. Same invariant `v1.2` reuses, introduced here in miniature.
+- While a reply is pending, show the **`thinking` face** (v0.2) as a **printed line** (a thinking indicator), and **suppress spontaneous nags** until idle. *(Note: `v0.3` removed the live in-place footer in favor of on-demand status, so there is no pinned "stable picture" to update here — the thinking face is a line, not a live region; a live, pinned thinking face returns with the **v1.1** full-screen client.)* A chat sent mid-think **queues (FIFO)**; a care action applies its numeric effect immediately.
 - Unchanged: spontaneous nags stay templated/instant; `LLMBrain`→`RuleBrain` fallback; `--rule` stays instant.
-- **Acceptance:** send a chat line — the status/body keeps updating during the call (no freeze); the reply appears when ready; `Ctrl-C` still works; `--rule` unaffected.
+- **Acceptance:** send a chat line — the **body keeps ticking and input stays live** during the call (no freeze; `/status` reflects the drain); the reply appears when ready; `Ctrl-C` exits at once; `--rule` unaffected.
 - **Forward link:** the single-process seed of `v1.2`'s daemon worker-pool async mind. *(A separate brain **process** is the v1 daemon, not v0 — v0.4 is off-thread, not off-process.)*
 - **Release:** `0.4.0`.
 
