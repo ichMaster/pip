@@ -5,11 +5,14 @@ delta, lets the creature speak up on its own if a need is low, then checks for
 a line of input *without blocking* (so the body keeps ticking even while you
 sit and think). Slash commands are care/info; anything else is conversation.
 
-The status block (face + bars) is a **fixed picture at the bottom**: a footer
-that is redrawn in place rather than reprinted after every turn, so the screen
-no longer fills with a stack of stale faces. Conversation lines scroll above
-it. All the cursor *arithmetic* lives here; the escape sequences themselves
-come from ``render`` (the sole owner of ANSI).
+The face + bars are shown **on demand** -- at startup (before the chat), after
+a care action, and on ``/status`` -- and pip's spontaneous lines just print
+normally. There is deliberately **no cursor-driven in-place footer**: redrawing
+a status block by moving the cursor is fragile (it drifts when a reply wraps,
+an emoji widens a line, or a spontaneous line lands mid-keystroke, leaving
+half-drawn boxes). A live, pinned status that never corrupts needs a full-screen
+view that owns the terminal -- that is the v1.1 client. Until then this stays a
+plain, robust, scrollback-friendly log.
 
 Input uses ``select`` on stdin, which is Unix-only (macOS/Linux).
 """
@@ -22,10 +25,8 @@ import sys
 import time
 
 from .pet import Pet
-from .render import (BANNER_MIN_WIDTH, BOLD, CLEAR_LINE, CYAN, DIM, RESET,
-                     STATUS_HEIGHT, clear_below, cursor_up, face, hide_cursor,
-                     restore_cursor, save_cursor, show_cursor, status_line,
-                     welcome_banner)
+from .render import (BANNER_MIN_WIDTH, BOLD, CYAN, DIM, RESET, face,
+                     status_line, welcome_banner)
 
 HELP = ("  /feed  /play  /sleep   care for me\n"
         "  /status  /help  /quit   info\n"
@@ -35,15 +36,9 @@ HELP = ("  /feed  /play  /sleep   care for me\n"
 # feel responsive, large enough not to spin the CPU.
 POLL_SECONDS = 0.2
 
-# When output is piped (not a terminal) we can't redraw in place, so we drop a
-# fresh status snapshot into the log at most this often instead.
-REPRINT_SECONDS = 30.0
-
-PROMPT = f"  {DIM}you>{RESET} "
-
 
 def _interactive() -> bool:
-    """True on a real terminal; piped/redirected output skips cursor control."""
+    """True on a real terminal; piped/redirected output uses the fixed layout."""
     return sys.stdout.isatty()
 
 
@@ -53,84 +48,27 @@ def _term_width() -> int:
 
 
 def _status_width() -> int | None:
-    """Width to render the footer at: the terminal width on a TTY, else None
-    (None keeps status_line's fixed legacy layout -- right for piped output)."""
+    """Width to draw the status at: terminal width on a TTY, else None (fixed)."""
     return _term_width() if _interactive() else None
 
 
-def _current_status(pet: Pet) -> str:
-    """The status block at the *current* terminal width -- recomputed on every
-    call, so a resized terminal reflows on the next redraw."""
-    return status_line(pet.name, pet.needs, width=_status_width())
+def say_line(name: str, text: str) -> None:
+    print(f"  {CYAN}{name}{RESET}: {text}")
 
 
-def _say(name: str, text: str) -> str:
-    """One creature line, ready to print."""
-    return f"  {CYAN}{name}{RESET}: {text}"
-
-
-def _echo(text: str) -> str:
-    """The user's own line, kept in the scrolled-back conversation."""
-    return f"  {DIM}you>{RESET} {text}"
-
-
-def _draw_footer(pet: Pet) -> None:
-    """Paint the status block, then park the cursor at the input prompt.
-
-    On a real terminal the prompt dangles (you type right after it); when piped,
-    it sits on its own line so the next printed line never collides with it.
-    """
-    print(_current_status(pet))
-    if _interactive():
-        sys.stdout.write(PROMPT)
-        sys.stdout.flush()
-    else:
-        print(PROMPT.rstrip())
-
-
-def _reframe(pet: Pet, *, after_enter: bool, echo: str | None,
-             lines: list[str], footer: bool = True) -> None:
-    """Add conversation line(s) without leaving a trail of old status blocks.
-
-    On a terminal: walk the cursor up to the top of the current footer, wipe
-    from there down (the old status block, and the line the shell just echoed),
-    reprint the conversation, then repaint the footer at the new bottom. When
-    not interactive there is nothing to erase -- we simply append.
-    """
-    if _interactive():
-        # The footer is STATUS_HEIGHT status lines + the prompt line. A pressed
-        # Enter echoes a newline, dropping the cursor one extra line below it.
-        up = STATUS_HEIGHT + (1 if after_enter else 0)
-        sys.stdout.write(cursor_up(up) + "\r" + clear_below())
-    if echo is not None:
-        print(_echo(echo))
-    for line in lines:
-        print(line)
-    if footer:
-        _draw_footer(pet)
-
-
-def _refresh_status(status: str) -> None:
-    """Repaint *only* the status block, in place, leaving the prompt untouched.
-
-    Save where the cursor is (somewhere on the prompt line, maybe mid-word),
-    step up over the block, rewrite its lines, then jump back -- so the four
-    bars/face update live as the body drains without disturbing what the user
-    is typing. The cursor is hidden for the brief hop to avoid flicker.
-    """
-    body = ("\n").join(CLEAR_LINE + line for line in status.split("\n"))
-    sys.stdout.write(hide_cursor() + save_cursor()
-                     + cursor_up(STATUS_HEIGHT) + body
-                     + restore_cursor() + show_cursor())
+def _prompt() -> None:
+    sys.stdout.write(f"\n  {DIM}you>{RESET} ")
     sys.stdout.flush()
 
 
-def _draw_intro(pet: Pet) -> None:
-    """A framed welcome banner on a wide terminal; a plain greeting otherwise.
+def _show_status(pet: Pet) -> None:
+    """Print the face + bars once, here and now (no cursor games, never stale)."""
+    print(status_line(pet.name, pet.needs, width=_status_width()))
 
-    The banner scrolls into history like any other line -- it is not the
-    persistent footer. Indented two spaces to line up with the rest of the UI.
-    """
+
+def _draw_intro(pet: Pet) -> None:
+    """Welcome banner on a wide terminal, a plain greeting otherwise, then the
+    face + bars -- so pip greets you with its status before the chat starts."""
     name = pet.name
     print()
     avail = _term_width() - 2          # leave room for the 2-space indent
@@ -138,85 +76,64 @@ def _draw_intro(pet: Pet) -> None:
         for line in welcome_banner(name, avail, pet.needs):
             print("  " + line)
         print()
-    else:                              # piped or too narrow: plain log
+    else:
         print(f"  {BOLD}{face(pet.needs)} {name}{RESET} blinks awake.\n")
         print(HELP + "\n")
-        print(_say(name, "hi! i'm so glad you're here."))
+    say_line(name, "hi! i'm so glad you're here.")
+    _show_status(pet)
 
 
 def run(pet: Pet) -> None:
-    name = pet.name
-    interactive = _interactive()
     _draw_intro(pet)
-    _draw_footer(pet)
-    shown = _current_status(pet)   # what the footer currently shows
+    _prompt()
 
     last = time.time()
-    next_log = last + REPRINT_SECONDS      # piped mode: occasional snapshot
-    try:
-        while True:
-            now = time.time()
-            pet.tick(now - last)   # the body ticks on real elapsed time
-            last = now
+    while True:
+        now = time.time()
+        pet.tick(now - last)   # the body ticks on real elapsed time
+        last = now
 
-            spoken = pet.spontaneous(now)
-            if spoken:
-                _reframe(pet, after_enter=False, echo=None, lines=[_say(name, spoken)])
-                shown = _current_status(pet)
-                next_log = now + REPRINT_SECONDS
+        spoken = pet.spontaneous(now)
+        if spoken:
+            print()
+            say_line(pet.name, spoken)
+            _prompt()
 
-            # Keep the picture live as the body drains, without spamming output:
-            # redraw only when the rendered status actually changed.
-            current = _current_status(pet)
-            if current != shown:
-                if interactive:
-                    _refresh_status(current)
-                    shown = current
-                elif now >= next_log:      # piped: drop a snapshot into the log
-                    print(current)
-                    shown = current
-                    next_log = now + REPRINT_SECONDS
-
-            # Non-blocking line input: only read if stdin has something ready.
-            if select.select([sys.stdin], [], [], POLL_SECONDS)[0]:
-                raw = sys.stdin.readline()
-                if not raw:             # EOF (e.g. piped input ran out)
-                    break
-                msg = raw.strip()
-                if not msg:             # bare Enter: just settle the footer back
-                    _reframe(pet, after_enter=True, echo=None, lines=[])
-                    shown = _current_status(pet)
-                    continue
-
-                lines, quit_ = _handle(pet, msg)
-                if quit_:
-                    _reframe(pet, after_enter=True, echo=msg, lines=lines, footer=False)
-                    break
-                _reframe(pet, after_enter=True, echo=msg, lines=lines)
-                shown = _current_status(pet)
-    finally:
-        if interactive:               # never leave the cursor hidden behind us
-            sys.stdout.write(show_cursor())
-            sys.stdout.flush()
+        # Non-blocking line input: only read if stdin has something ready.
+        if select.select([sys.stdin], [], [], POLL_SECONDS)[0]:
+            raw = sys.stdin.readline()
+            if not raw:             # EOF (e.g. piped input ran out)
+                break
+            msg = raw.strip()
+            if not msg:
+                _prompt()
+                continue
+            if _handle(pet, msg):   # True => user asked to quit
+                break
+            _prompt()
 
 
-def _handle(pet: Pet, msg: str) -> tuple[list[str], bool]:
-    """Decide *what* the creature says to one line. Returns ``(lines, quit?)``.
+def _handle(pet: Pet, msg: str) -> bool:
+    """Dispatch one line. Returns True if the loop should stop.
 
-    Painting is ``run()``'s job -- this only chooses the words (and applies the
-    body effects of a care action), so the two clocks stay cleanly separated.
+    Care actions and ``/status`` reprint the face + bars so you see the change;
+    plain chat just speaks (run ``/status`` any time to check on pip).
     """
     name = pet.name
     low = msg.lower()
 
     if low in ("/quit", "/q", "bye"):
-        return [_say(name, "bye... come back soon.")], True
+        say_line(name, "bye... come back soon.")
+        return True
     if low in ("/help", "/h"):
-        return HELP.split("\n"), False
-    if low in ("/status", "/s"):
-        return [], False        # the footer already shows the live status
-    if low in ("/feed", "feed", "/play", "play", "/sleep", "sleep"):
+        print(HELP)
+    elif low in ("/status", "/s"):
+        _show_status(pet)
+    elif low in ("/feed", "feed", "/play", "play", "/sleep", "sleep"):
         kind = low.lstrip("/")
         pet.act(kind)
-        return [_say(name, pet.respond(kind))], False
-    return [_say(name, pet.respond("chat", msg))], False
+        say_line(name, pet.respond(kind))
+        _show_status(pet)
+    else:
+        say_line(name, pet.respond("chat", msg))
+    return False
