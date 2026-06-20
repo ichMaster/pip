@@ -124,6 +124,20 @@ def run(pet: Pet) -> None:
         print()
         say_line(pet.name, pet.apply_reply(kind, text, reply))  # apply: MAIN thread
 
+    def start(payload: tuple[str, str]) -> None:  # dispatch + show "thinking"
+        nonlocal pending
+        pending = dispatch(*payload)
+        if payload[0] == "chat" and _interactive():   # the thinking seam (v0.2)
+            print(f"  {CYAN}{pet.name}{RESET} "
+                  f"{face(pet.needs, state='thinking')} {DIM}…thinking{RESET}")
+
+    def next_or_idle() -> None:                   # dispatch the queue head, or go idle
+        nonlocal pending
+        if waiting:
+            start(waiting.popleft())
+        else:
+            pending = None
+
     def drain() -> None:                          # finish in-flight work on exit
         nonlocal pending
         while pending is not None:
@@ -138,11 +152,12 @@ def run(pet: Pet) -> None:
             pet.tick(now - last)   # the body keeps ticking, even while thinking
             last = now
 
-            spoken = pet.spontaneous(now)
-            if spoken:
-                print()
-                say_line(pet.name, spoken)
-                _prompt()
+            if pending is None:        # don't interrupt a reply that's in flight
+                spoken = pet.spontaneous(now)
+                if spoken:
+                    print()
+                    say_line(pet.name, spoken)
+                    _prompt()
 
             # Poll the worker: apply + print a finished reply, then dispatch next.
             if pending is not None:
@@ -153,7 +168,7 @@ def run(pet: Pet) -> None:
                 else:
                     deliver(kind, text, reply)
                     _prompt()
-                    pending = dispatch(*waiting.popleft()) if waiting else None
+                    next_or_idle()
 
             # Non-blocking line input: only read if stdin has something ready.
             if select.select([sys.stdin], [], [], POLL_SECONDS)[0]:
@@ -172,7 +187,7 @@ def run(pet: Pet) -> None:
                     break
                 if action == "brain":
                     if pending is None:
-                        pending = dispatch(*payload)
+                        start(payload)
                     else:
                         waiting.append(payload)
                 else:                   # handled synchronously (status/help)
